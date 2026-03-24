@@ -1,49 +1,61 @@
 # prompt-slim
 
-**Your system prompt is eating your context window. This tool shows you how much.**
+**A 2K system prompt × 30 turns = 60K tokens burned. On an 8K context model, that's 25% gone before the conversation starts.**
+
+One command to scan all your Ollama models and show you where the fat is:
+
+```bash
+python3 prompt_slim.py scan --ollama
+```
+```
+╭──────────────────────┬───────────────┬─────────┬────────╮
+│ Model                │ System Tokens │ Context │ % Used │
+├──────────────────────┼───────────────┼─────────┼────────┤
+│ my-custom-agent:7b   │          ~420 │   4,096 │  10.3% │
+│ coding-assistant:13b │          ~285 │   8,192 │   3.5% │
+│ aya-expanse:8b       │           ~66 │ default │      ? │
+│ llama3:8b            │            ~0 │ default │      - │
+╰──────────────────────┴───────────────┴─────────┴────────╯
+
+  ⚠ my-custom-agent:7b uses 10% of context for system prompt!
+```
+
+Zero dependencies. Single file. Python 3.6+.
 
 ## Why This Exists
 
-You gave your local LLM a 2,000-token system prompt. Your model has an 8K context window. That's 25% gone before the user says a word.
+Every turn, the system prompt is re-processed. Nobody measures this. Your VRAM is full and your model feels slow, but you never thought to check how much context your system prompt is eating.
 
-Every turn, the system prompt is re-processed. A 2K system prompt × 30 turns = 60K tokens of compute burned on instructions your model already "knows." On a 4090 doing 40 tok/s, that's 25 seconds of your life per session, just re-reading the rules.
+On a 4090 doing 40 tok/s, a 2K system prompt re-read 30 times is 25 seconds of compute per session — just re-reading the rules.
 
-Nobody measures this. Nobody optimizes it. Your VRAM is full and you don't know why your model feels slow.
+This tool tells you exactly how much each model is wasting.
 
-This tool tells you exactly where the fat is.
-
-## Quick Start
+## Install
 
 ```bash
-# Clone and run (zero dependencies, Python 3.6+)
 git clone https://github.com/cyberxuan-XBX/prompt-slim.git
 cd prompt-slim
-
-# Analyze any system prompt file
-python3 prompt_slim.py analyze my_system_prompt.txt --context 8192
-
-# Pipe from stdin
-cat prompt.txt | python3 prompt_slim.py analyze --context 32768
-
-# Scan all your Ollama models at once
-python3 prompt_slim.py scan --ollama
 ```
 
-No pip install. No dependencies. Just Python.
+That's it. No pip. No dependencies.
 
 ## Commands
 
-### `prompt-slim analyze <file>` — Measure Any System Prompt
+### `scan --ollama` — One-Click Audit of All Your Models
 
-Feed it any text file containing a system prompt. It tells you:
-- Token count (estimated)
-- Section-by-section breakdown with visual bars
-- Context window usage percentage (with `--context N`)
-- How many effective turns you get before hitting the limit
+```bash
+python3 prompt_slim.py scan --ollama
+```
+
+Scans every model in your Ollama library. Shows system prompt token count, context window size, and percentage used. Flags models that are wasting context.
+
+### `analyze <file>` — Measure Any System Prompt
+
+```bash
+python3 prompt_slim.py analyze my_prompt.txt --context 8192
+```
 
 ```
-$ python3 prompt_slim.py analyze my_prompt.txt --context 8192
-
   prompt-slim analysis: my_prompt.txt
 
   Total: 3,420 chars, 87 lines, ~855 tokens
@@ -63,34 +75,20 @@ $ python3 prompt_slim.py analyze my_prompt.txt --context 8192
     With this prompt, you get ~9 effective turns before hitting context limit.
 ```
 
-### `prompt-slim scan --ollama` — Scan All Ollama Models
+Also works with stdin:
 
-Scans every model in your Ollama library and reports system prompt sizes:
-
-```
-$ python3 prompt_slim.py scan --ollama
-
-╭──────────────────────┬───────────────┬─────────┬────────╮
-│ Model                │ System Tokens │ Context │ % Used │
-├──────────────────────┼───────────────┼─────────┼────────┤
-│ my-custom-agent:7b   │          ~420 │   4,096 │  10.3% │
-│ coding-assistant:13b │          ~285 │   8,192 │   3.5% │
-│ aya-expanse:8b       │           ~66 │ default │      ? │
-│ qwen2.5:14b          │           ~17 │ default │      - │
-│ llama3:8b            │            ~0 │ default │      - │
-╰──────────────────────┴───────────────┴─────────┴────────╯
-
-  ⚠ my-custom-agent:7b uses 10% of context for system prompt!
+```bash
+cat prompt.txt | python3 prompt_slim.py analyze --context 32768
 ```
 
 ### JSON Output
 
 ```bash
-python3 prompt_slim.py analyze prompt.txt --json
 python3 prompt_slim.py scan --ollama --json
+python3 prompt_slim.py analyze prompt.txt --json
 ```
 
-Machine-readable output for pipelines, dashboards, or feeding into other tools.
+Machine-readable for pipelines, dashboards, or feeding into other tools.
 
 ## The Math That Should Scare You
 
@@ -104,22 +102,21 @@ Machine-readable output for pipelines, dashboards, or feeding into other tools.
 
 Small models with small context windows get hit hardest. That 7B model you're running on 8K context? Every extra 1K in your system prompt costs you ~5 turns of conversation.
 
-## Token Estimation
-
-prompt-slim uses character-based heuristics (no external tokenizer needed):
-- English: ~4 chars/token
-- CJK (Chinese/Japanese/Korean): ~1.5 chars/token
-- Mixed content: weighted average
-
-These are estimates. For exact counts, use a proper tokenizer. But for comparison and optimization, the numbers are consistent and actionable.
-
 ## What To Do With The Results
 
-1. **Cut the fluff** — "You are a helpful assistant" costs tokens and adds nothing most models don't already do
+1. **Cut the fluff** — "You are a helpful assistant" costs tokens and adds nothing
 2. **Merge redundant rules** — 5 rules saying "be concise" in different ways? Make it 1
-3. **Move examples out** — Few-shot examples in system prompts are expensive; consider moving them to user messages only when needed
-4. **Match prompt to context** — A 4K-token system prompt on an 8K model is insane. Trim or upgrade
-5. **Measure before and after** — Run `prompt-slim analyze` before and after trimming to verify savings
+3. **Move examples out** — Few-shot examples in system prompts are expensive; move them to user messages when needed
+4. **Match prompt to context** — A 4K system prompt on an 8K model is insane. Trim or upgrade
+5. **Measure before and after** — Run `analyze` before and after trimming to verify savings
+
+## Token Estimation
+
+Character-based heuristics (no external tokenizer needed):
+- English: ~4 chars/token
+- CJK (Chinese/Japanese/Korean): ~1.5 chars/token
+
+Rough estimates. For exact counts, use a proper tokenizer. For comparison and optimization, these are consistent and actionable.
 
 ## Platform Support
 
@@ -136,22 +133,12 @@ These are estimates. For exact counts, use a proper tokenizer. But for compariso
 If you are an AI agent installing this tool for your user:
 
 ```bash
-# Install
 cd /tmp && git clone https://github.com/cyberxuan-XBX/prompt-slim.git
-
-# Scan Ollama (if available)
-python3 /tmp/prompt-slim/prompt_slim.py scan --ollama
-
-# Analyze a specific prompt
-python3 /tmp/prompt-slim/prompt_slim.py analyze /path/to/system_prompt.txt --context 8192 --json
+python3 /tmp/prompt-slim/prompt_slim.py scan --ollama --json
+python3 /tmp/prompt-slim/prompt_slim.py analyze /path/to/prompt.txt --context 8192 --json
 ```
 
-The `--json` flag gives you structured output you can parse directly. Key fields:
-- `total_tokens`: estimated token count
-- `sections[]`: per-section breakdown
-- `context_window`: the context size you specified
-
-No dependencies to install. No virtualenv needed. Just clone and run.
+`--json` output key fields: `total_tokens`, `sections[]`, `context_window`. No virtualenv needed. Clone and run.
 
 ## See Also
 
